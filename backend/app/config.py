@@ -142,11 +142,11 @@ class Settings(BaseSettings):
         ),
     )
     ptt_output_mode: str = Field(
-        default="type",
+        default="paste",
         description=(
-            "How dictated text is emitted: 'type' (Unicode keystrokes, "
-            "clipboard-safe, works everywhere) or 'paste' (clipboard + Ctrl+V, "
-            "faster for long text)."
+            "How dictated text is emitted: 'paste' (clipboard + Ctrl+V, atomic "
+            "and reliable for full sentences — recommended) or 'type' (per-"
+            "character keystrokes, paced by PTT_TYPE_DELAY_S)."
         ),
     )
     ptt_min_record_s: float = Field(
@@ -156,6 +156,14 @@ class Settings(BaseSettings):
     ptt_append_space: bool = Field(
         default=True,
         description="Append a trailing space after each dictation.",
+    )
+    ptt_type_delay_s: float = Field(
+        default=0.006,
+        description=(
+            "Per-character delay (seconds) when typing the transcript. A small "
+            "delay paces injection so the target app's input queue doesn't drop "
+            "characters. Increase (e.g. 0.012) if you see partial/garbled output."
+        ),
     )
 
     # ── Server ───────────────────────────────────────────────────────

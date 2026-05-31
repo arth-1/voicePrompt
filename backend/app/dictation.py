@@ -58,12 +58,17 @@ class PushToTalkDictation:
         hotkey: str = "ctrl+shift+space",
         min_record_s: float = 0.3,
         append_space: bool = True,
+        type_delay_s: float = 0.006,
     ):
         self.whisper = whisper
         self.typer = typer
         self.hotkey = hotkey
         self.min_record_s = min_record_s
         self.append_space = append_space
+        self.type_delay_s = type_delay_s
+        # 'paste' (atomic, reliable for sentences) or 'type' (per-char). Mirror
+        # the TextTyper's configured mode so PTT_OUTPUT_MODE controls both.
+        self.output_mode = getattr(typer, "mode", "paste")
 
         self.sample_rate = settings.sample_rate
 
@@ -96,19 +101,22 @@ class PushToTalkDictation:
 
     def _emit_text(self, text: str) -> bool:
         """
-        Type ``text`` at the cursor.
+        Insert ``text`` at the cursor.
 
-        We run a global *suppressing* keyboard hook for the trigger key. That
-        hook processes events on a background listener thread, so toggling an
-        "ignore" flag around injection races against it — only the characters
-        typed before the flag flips back get through (this caused output to be
-        truncated at the first space).
+        We run a global *suppressing* keyboard hook for the trigger key, so
+        before injecting anything we remove that hook (and reinstall it after),
+        otherwise our injected keys race against the listener thread and get
+        clipped.
 
-        The reliable fix: temporarily *remove* the suppressing hook, type, then
-        reinstall it. With no hook active during injection, every character
-        (spaces included) reaches the focused app. We type with
-        ``keyboard.write`` because it releases any held hotkey modifiers
-        (ctrl/shift) before typing so they can't corrupt the text.
+        Two delivery modes:
+        - 'paste' (default): put the text on the clipboard and send Ctrl+V.
+          The whole transcript arrives atomically, so nothing can be dropped —
+          this is the reliable choice for full sentences. The previous
+          clipboard contents are restored afterwards.
+        - 'type': synthesize per-character keystrokes via ``keyboard.write``,
+          paced by ``type_delay_s``. Without pacing, SendInput overruns the
+          target app's input queue and characters are dropped (e.g.
+          "Hello, what is happening?" -> "Hello, ning?").
         """
         kb = self._keyboard
         if kb is None:
@@ -116,11 +124,15 @@ class PushToTalkDictation:
 
         self._remove_hook()
         try:
-            kb.write(text, delay=0, restore_state_after=False)
-            logger.info(f"Typed {len(text)} chars at cursor (keyboard.write).")
+            if self.output_mode == "type":
+                kb.write(text, delay=self.type_delay_s, restore_state_after=False)
+                logger.info(f"Typed {len(text)} chars at cursor (keyboard.write).")
+            else:
+                self._paste_via_clipboard(kb, text)
+                logger.info(f"Pasted {len(text)} chars at cursor.")
             ok = True
         except Exception as e:
-            logger.error(f"keyboard.write failed, falling back: {e}")
+            logger.error(f"Primary emit failed ({e}); falling back to TextTyper")
             ok = self.typer.type_text(text)
         finally:
             # Let injected keystrokes drain from the OS queue before the
@@ -128,6 +140,21 @@ class PushToTalkDictation:
             time.sleep(0.05)
             self._install_hook()
         return ok
+
+    def _paste_via_clipboard(self, kb, text: str) -> None:
+        """Set clipboard to text, send Ctrl+V, then restore prior clipboard."""
+        from .output.text_typer import _get_clipboard, _set_clipboard
+
+        prev = _get_clipboard()
+        if not _set_clipboard(text):
+            raise RuntimeError("could not set clipboard")
+        time.sleep(0.03)
+        # Release any held hotkey modifiers, then paste. send() sets the
+        # library's is_replaying flag so these events bypass any of our hooks.
+        kb.send("ctrl+v")
+        if prev is not None:
+            time.sleep(0.15)  # let the paste complete before restoring
+            _set_clipboard(prev)
 
     def _stop_and_transcribe(self) -> None:
         if not self._recording:
@@ -304,6 +331,7 @@ def main() -> None:
         hotkey=settings.ptt_hotkey,
         min_record_s=settings.ptt_min_record_s,
         append_space=settings.ptt_append_space,
+        type_delay_s=settings.ptt_type_delay_s,
     )
     dictation.run()
 

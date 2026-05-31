@@ -41,20 +41,25 @@ Then focus any text field, hold **`ctrl+shift+space`**, speak, and release.
 
 ```env
 PTT_HOTKEY=ctrl+shift+space # any keyboard-library combo
-PTT_OUTPUT_MODE=type        # 'type' (Unicode keystrokes) or 'paste' (Ctrl+V)
+PTT_OUTPUT_MODE=paste       # 'paste' (clipboard+Ctrl+V, reliable) or 'type'
+PTT_TYPE_DELAY_S=0.006      # per-char delay for 'type' mode (raise if garbled)
 PTT_APPEND_SPACE=true       # add a space after each dictation
 WHISPER_MODEL=small         # tiny/base/small/medium for speed vs accuracy
 ```
 
 Notes:
-- Windows-only (uses Win32 `SendInput`). The default `ctrl+shift+space` avoids
-  clashing with common Windows shortcuts like Win+H dictation.
+- Windows-only (uses Win32 + the `keyboard` library). The default
+  `ctrl+shift+space` avoids clashing with common Windows shortcuts like Win+H.
+- **`paste` mode** delivers the whole transcript atomically (one Ctrl+V), so it
+  can't drop characters — recommended for full sentences. It restores your
+  previous clipboard contents afterwards.
+- **`type` mode** synthesizes per-character keystrokes. It's paced by
+  `PTT_TYPE_DELAY_S`; with too small a delay, fast injection can overflow the
+  target app and drop characters (e.g. "Hello, what is happening?" →
+  "Hello, ning?"). Raise the delay if you see that.
 - The laptop **`Fn` key cannot be used** as a hotkey — it's handled inside the
   keyboard's firmware and never sends a scancode to Windows, so no software can
   detect it. Use a `ctrl`/`shift`-based combo instead.
-- `type` mode synthesizes Unicode keystrokes and never touches your clipboard,
-  so it works in virtually any app. `paste` mode is faster for long text and
-  restores your previous clipboard afterwards.
 - Some elevated apps only accept synthesized input if this script also runs
   elevated ("Run as administrator").
 
@@ -185,7 +190,8 @@ All settings are in `backend/.env`:
 | `CLAUDE_CODE_ALLOWED_TOOLS` | (CLI default) | Comma-separated tools, e.g. `Read,Grep,Edit,Bash` |
 | `CLAUDE_CODE_MAX_TURNS` | `12` | Max agent turns per voice request |
 | `PTT_HOTKEY` | `ctrl+shift+space` | Global push-to-talk hotkey (hold to record) |
-| `PTT_OUTPUT_MODE` | `type` | `type` (Unicode keystrokes) or `paste` (Ctrl+V) |
+| `PTT_OUTPUT_MODE` | `paste` | `paste` (clipboard+Ctrl+V, reliable) or `type` (per-char) |
+| `PTT_TYPE_DELAY_S` | `0.006` | Per-char delay for `type` mode (raise if garbled) |
 | `PTT_MIN_RECORD_S` | `0.3` | Ignore clips shorter than this (accidental taps) |
 | `PTT_APPEND_SPACE` | `true` | Append a space after each dictation |
 | `WHISPER_MODEL` | `small` | Whisper model size |
