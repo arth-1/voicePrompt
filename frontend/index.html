@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Voice-Claude Bridge — Real-time voice assistant powered by Claude AI">
+    <title>Voice-Claude Bridge</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        /* ── Reset & Base ──────────────────────────────────────── */
+        *, *::before, *::after {
+            margin: 0; padding: 0; box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: rgba(20, 20, 32, 0.7);
+            --bg-card-hover: rgba(28, 28, 44, 0.8);
+            --border: rgba(255, 255, 255, 0.06);
+            --border-active: rgba(120, 90, 255, 0.3);
+
+            --text-primary: #e8e8f0;
+            --text-secondary: #8888a0;
+            --text-muted: #555570;
+
+            --accent: #785aff;
+            --accent-glow: rgba(120, 90, 255, 0.25);
+            --accent-bright: #9b7eff;
+
+            --success: #34d399;
+            --success-glow: rgba(52, 211, 153, 0.2);
+            --warning: #fbbf24;
+            --error: #f87171;
+            --error-glow: rgba(248, 113, 113, 0.15);
+
+            --speaking: #22d3ee;
+            --speaking-glow: rgba(34, 211, 238, 0.25);
+
+            --radius: 16px;
+            --radius-sm: 10px;
+            --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ── Background Glow ───────────────────────────────────── */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -40%;
+            left: -20%;
+            width: 60%;
+            height: 80%;
+            background: radial-gradient(ellipse, var(--accent-glow) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+            animation: bgFloat 20s ease-in-out infinite alternate;
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            bottom: -30%;
+            right: -15%;
+            width: 50%;
+            height: 70%;
+            background: radial-gradient(ellipse, rgba(34, 211, 238, 0.08) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+            animation: bgFloat 25s ease-in-out infinite alternate-reverse;
+        }
+
+        @keyframes bgFloat {
+            0% { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(40px, -30px) scale(1.1); }
+        }
+
+        /* ── Layout ────────────────────────────────────────────── */
+        .app {
+            position: relative;
+            z-index: 1;
+            max-width: 860px;
+            margin: 0 auto;
+            padding: 32px 24px 120px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            min-height: 100vh;
+        }
+
+        /* ── Header ────────────────────────────────────────────── */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 0;
+        }
+
+        .header__brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header__icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, var(--accent), var(--speaking));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            box-shadow: 0 4px 20px var(--accent-glow);
+        }
+
+        .header__title {
+            font-size: 20px;
+            font-weight: 600;
+            letter-spacing: -0.3px;
+        }
+
+        .header__subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        /* ── Status Badge ──────────────────────────────────────── */
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            font-size: 13px;
+            font-weight: 500;
+            transition: var(--transition);
+        }
+
+        .status-badge__dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            transition: var(--transition);
+        }
+
+        .status-badge[data-status="connected"] .status-badge__dot {
+            background: var(--success);
+            box-shadow: 0 0 8px var(--success-glow);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .status-badge[data-status="connecting"] .status-badge__dot {
+            background: var(--warning);
+            animation: pulse 1s ease-in-out infinite;
+        }
+
+        .status-badge[data-status="error"] .status-badge__dot {
+            background: var(--error);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.3); }
+        }
+
+        /* ── Cards ─────────────────────────────────────────────── */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            transition: var(--transition);
+        }
+
+        .card:hover {
+            border-color: var(--border-active);
+        }
+
+        .card__header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .card__header-icon {
+            font-size: 16px;
+            opacity: 0.7;
+        }
+
+        .card__header-label {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+        }
+
+        .card__body {
+            padding: 20px;
+        }
+
+        /* ── Microphone Section ────────────────────────────────── */
+        .mic-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 24px;
+            padding: 40px 20px;
+        }
+
+        .mic-btn {
+            position: relative;
+            width: 88px;
+            height: 88px;
+            border-radius: 50%;
+            border: 2px solid var(--border);
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            transition: all 0.3s ease;
+            outline: none;
+        }
+
+        .mic-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent-bright);
+            transform: scale(1.05);
+            box-shadow: 0 0 30px var(--accent-glow);
+        }
+
+        .mic-btn.active {
+            border-color: var(--error);
+            background: var(--error-glow);
+            color: var(--error);
+            animation: micPulse 1.5s ease-in-out infinite;
+        }
+
+        .mic-btn.active::before,
+        .mic-btn.active::after {
+            content: '';
+            position: absolute;
+            border-radius: 50%;
+            border: 2px solid var(--error);
+            opacity: 0;
+            animation: micRipple 2s ease-out infinite;
+        }
+
+        .mic-btn.active::before {
+            inset: -12px;
+            animation-delay: 0s;
+        }
+
+        .mic-btn.active::after {
+            inset: -24px;
+            animation-delay: 0.5s;
+        }
+
+        @keyframes micPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.04); }
+        }
+
+        @keyframes micRipple {
+            0% { opacity: 0.5; transform: scale(0.95); }
+            100% { opacity: 0; transform: scale(1.15); }
+        }
+
+        .mic-label {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            transition: var(--transition);
+        }
+
+        .mic-label.active {
+            color: var(--error);
+        }
+
+        /* ── VAD Indicator ─────────────────────────────────────── */
+        .vad-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 18px;
+            border-radius: 20px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border);
+            font-size: 13px;
+            color: var(--text-muted);
+            transition: var(--transition);
+        }
+
+        .vad-indicator__bars {
+            display: flex;
+            gap: 3px;
+            align-items: flex-end;
+            height: 16px;
+        }
+
+        .vad-indicator__bar {
+            width: 3px;
+            background: var(--text-muted);
+            border-radius: 2px;
+            transition: all 0.15s ease;
+        }
+
+        .vad-indicator__bar:nth-child(1) { height: 6px; }
+        .vad-indicator__bar:nth-child(2) { height: 10px; }
+        .vad-indicator__bar:nth-child(3) { height: 14px; }
+        .vad-indicator__bar:nth-child(4) { height: 10px; }
+        .vad-indicator__bar:nth-child(5) { height: 6px; }
+
+        .vad-indicator[data-state="speaking"] {
+            border-color: var(--speaking);
+            color: var(--speaking);
+            box-shadow: 0 0 15px var(--speaking-glow);
+        }
+
+        .vad-indicator[data-state="speaking"] .vad-indicator__bar {
+            background: var(--speaking);
+            animation: vadBounce 0.6s ease-in-out infinite;
+        }
+
+        .vad-indicator[data-state="speaking"] .vad-indicator__bar:nth-child(1) { animation-delay: 0s; }
+        .vad-indicator[data-state="speaking"] .vad-indicator__bar:nth-child(2) { animation-delay: 0.1s; }
+        .vad-indicator[data-state="speaking"] .vad-indicator__bar:nth-child(3) { animation-delay: 0.2s; }
+        .vad-indicator[data-state="speaking"] .vad-indicator__bar:nth-child(4) { animation-delay: 0.3s; }
+        .vad-indicator[data-state="speaking"] .vad-indicator__bar:nth-child(5) { animation-delay: 0.4s; }
+
+        @keyframes vadBounce {
+            0%, 100% { transform: scaleY(1); }
+            50% { transform: scaleY(1.8); }
+        }
+
+        .vad-indicator[data-state="finalizing"] {
+            border-color: var(--warning);
+            color: var(--warning);
+        }
+
+        /* ── Transcript Area ───────────────────────────────────── */
+        .transcript-area {
+            min-height: 60px;
+            font-size: 15px;
+            line-height: 1.7;
+        }
+
+        .transcript-area__partial {
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        .transcript-area__final {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .transcript-area__placeholder {
+            color: var(--text-muted);
+            font-style: italic;
+            font-size: 14px;
+        }
+
+        /* ── Claude Response ───────────────────────────────────── */
+        .claude-response {
+            min-height: 80px;
+            font-size: 15px;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .claude-response__text {
+            color: var(--text-primary);
+        }
+
+        .claude-response__cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1.1em;
+            background: var(--accent-bright);
+            margin-left: 2px;
+            vertical-align: text-bottom;
+            animation: blink 0.8s step-end infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        .claude-response__placeholder {
+            color: var(--text-muted);
+            font-style: italic;
+            font-size: 14px;
+        }
+
+        .claude-response__done-tag {
+            display: inline-block;
+            margin-top: 12px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            background: var(--success-glow);
+            color: var(--success);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        /* ── Conversation History ──────────────────────────────── */
+        .history {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            padding-right: 6px;
+        }
+
+        .history::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .history::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .history::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        .history__entry {
+            padding: 14px 18px;
+            border-radius: var(--radius-sm);
+            background: rgba(255,255,255,0.02);
+            border: 1px solid var(--border);
+            transition: var(--transition);
+        }
+
+        .history__entry:hover {
+            background: rgba(255,255,255,0.04);
+        }
+
+        .history__user {
+            font-size: 13px;
+            color: var(--speaking);
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .history__user::before {
+            content: '🎤 ';
+        }
+
+        .history__claude {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
+        .history__claude::before {
+            content: '🤖 ';
+        }
+
+        /* ── Error Banner ──────────────────────────────────────── */
+        .error-banner {
+            display: none;
+            padding: 12px 20px;
+            border-radius: var(--radius-sm);
+            background: var(--error-glow);
+            border: 1px solid rgba(248, 113, 113, 0.3);
+            color: var(--error);
+            font-size: 13px;
+            font-weight: 500;
+            animation: slideDown 0.3s ease;
+        }
+
+        .error-banner.visible {
+            display: block;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ── Footer ────────────────────────────────────────────── */
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        /* ── Responsive ────────────────────────────────────────── */
+        @media (max-width: 640px) {
+            .app {
+                padding: 16px 16px 100px;
+            }
+            .header {
+                flex-direction: column;
+                gap: 12px;
+            }
+            .mic-btn {
+                width: 72px;
+                height: 72px;
+                font-size: 28px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app" id="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header__brand">
+                <div class="header__icon">🎙</div>
+                <div>
+                    <div class="header__title">Voice-Claude Bridge</div>
+                    <div class="header__subtitle">Real-time voice assistant</div>
+                </div>
+            </div>
+            <div class="status-badge" id="statusBadge" data-status="disconnected">
+                <span class="status-badge__dot"></span>
+                <span id="statusText">Disconnected</span>
+            </div>
+        </header>
+
+        <!-- Error Banner -->
+        <div class="error-banner" id="errorBanner"></div>
+
+        <!-- Microphone Control -->
+        <div class="card">
+            <div class="mic-section">
+                <button class="mic-btn" id="micBtn" title="Click to start/stop recording">
+                    🎤
+                </button>
+                <span class="mic-label" id="micLabel">Click to start</span>
+                <div class="vad-indicator" id="vadIndicator" data-state="idle">
+                    <div class="vad-indicator__bars">
+                        <div class="vad-indicator__bar"></div>
+                        <div class="vad-indicator__bar"></div>
+                        <div class="vad-indicator__bar"></div>
+                        <div class="vad-indicator__bar"></div>
+                        <div class="vad-indicator__bar"></div>
+                    </div>
+                    <span id="vadLabel">Idle</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Transcript -->
+        <div class="card">
+            <div class="card__header">
+                <span class="card__header-icon">📝</span>
+                <span class="card__header-label">Live Transcript</span>
+            </div>
+            <div class="card__body">
+                <div class="transcript-area" id="transcriptArea">
+                    <div class="transcript-area__placeholder" id="transcriptPlaceholder">
+                        Speak into your microphone to see the transcript here...
+                    </div>
+                    <div class="transcript-area__partial" id="partialTranscript" style="display:none"></div>
+                    <div class="transcript-area__final" id="finalTranscript" style="display:none"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Claude Response -->
+        <div class="card">
+            <div class="card__header">
+                <span class="card__header-icon">🤖</span>
+                <span class="card__header-label">Claude Response</span>
+            </div>
+            <div class="card__body">
+                <div class="claude-response" id="claudeResponse">
+                    <div class="claude-response__placeholder" id="claudePlaceholder">
+                        Claude's response will stream here...
+                    </div>
+                    <span class="claude-response__text" id="claudeText" style="display:none"></span>
+                    <span class="claude-response__cursor" id="claudeCursor" style="display:none"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Conversation History -->
+        <div class="card">
+            <div class="card__header">
+                <span class="card__header-icon">💬</span>
+                <span class="card__header-label">History</span>
+            </div>
+            <div class="card__body">
+                <div class="history" id="history">
+                    <!-- Entries will be added dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            Voice-Claude Bridge — Powered by faster-whisper & Claude
+        </div>
+    </div>
+
+    <script>
+    // ── Configuration ──────────────────────────────────────────
+    const WS_URL = `ws://${window.location.host}/ws/voice`;
+    const TARGET_SAMPLE_RATE = 16000;
+    const FRAME_DURATION_MS = 20;
+    const SAMPLES_PER_FRAME = TARGET_SAMPLE_RATE * FRAME_DURATION_MS / 1000; // 320
+
+    // ── State ──────────────────────────────────────────────────
+    let ws = null;
+    let isRecording = false;
+    let audioContext = null;
+    let mediaStream = null;
+    let workletNode = null;
+    let frameSeq = 0;
+    let currentClaudeText = '';
+    let currentFinalTranscript = '';
+    let currentHistoryEntry = null;
+
+    // ── DOM Elements ───────────────────────────────────────────
+    const micBtn = document.getElementById('micBtn');
+    const micLabel = document.getElementById('micLabel');
+    const statusBadge = document.getElementById('statusBadge');
+    const statusText = document.getElementById('statusText');
+    const vadIndicator = document.getElementById('vadIndicator');
+    const vadLabel = document.getElementById('vadLabel');
+    const partialTranscript = document.getElementById('partialTranscript');
+    const finalTranscript = document.getElementById('finalTranscript');
+    const transcriptPlaceholder = document.getElementById('transcriptPlaceholder');
+    const claudeText = document.getElementById('claudeText');
+    const claudeCursor = document.getElementById('claudeCursor');
+    const claudePlaceholder = document.getElementById('claudePlaceholder');
+    const claudeResponse = document.getElementById('claudeResponse');
+    const errorBanner = document.getElementById('errorBanner');
+    const history = document.getElementById('history');
+
+    // ── WebSocket ──────────────────────────────────────────────
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_DELAY = 10000;
+
+    function connectWebSocket() {
+        setStatus('connecting', 'Connecting...');
+
+        ws = new WebSocket(WS_URL);
+
+        ws.onopen = () => {
+            reconnectAttempts = 0;
+            setStatus('connected', 'Connected');
+            hideError();
+        };
+
+        ws.onclose = (e) => {
+            setStatus('error', 'Disconnected');
+            if (isRecording) {
+                stopRecording();
+            }
+            // Auto-reconnect with exponential backoff
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
+            reconnectAttempts++;
+            setTimeout(connectWebSocket, delay);
+        };
+
+        ws.onerror = (e) => {
+            showError('WebSocket connection error. Retrying...');
+        };
+
+        ws.onmessage = (event) => {
+            const msg = JSON.parse(event.data);
+            handleServerMessage(msg);
+        };
+    }
+
+    function handleServerMessage(msg) {
+        switch (msg.type) {
+            case 'vad_state':
+                setVADState(msg.state);
+                break;
+
+            case 'partial_transcript':
+                showPartialTranscript(msg.text);
+                break;
+
+            case 'final_transcript':
+                showFinalTranscript(msg.text);
+                break;
+
+            case 'claude_delta':
+                appendClaudeDelta(msg.text);
+                break;
+
+            case 'claude_done':
+                onClaudeDone();
+                break;
+
+            case 'error':
+                showError(msg.message);
+                break;
+        }
+    }
+
+    function sendMessage(msg) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(msg));
+        }
+    }
+
+    // ── Audio Capture ──────────────────────────────────────────
+    async function startRecording() {
+        try {
+            mediaStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    channelCount: 1,
+                    sampleRate: { ideal: TARGET_SAMPLE_RATE },
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                }
+            });
+
+            audioContext = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
+
+            // If browser doesn't support our target rate, we'll resample
+            const actualRate = audioContext.sampleRate;
+
+            // Register the audio worklet processor inline via Blob URL
+            const processorCode = `
+                class PCMProcessor extends AudioWorkletProcessor {
+                    constructor() {
+                        super();
+                        this.buffer = new Float32Array(0);
+                        this.targetRate = ${TARGET_SAMPLE_RATE};
+                        this.actualRate = sampleRate; // AudioWorklet global
+                        this.samplesPerFrame = ${SAMPLES_PER_FRAME};
+                    }
+
+                    process(inputs, outputs, parameters) {
+                        const input = inputs[0];
+                        if (!input || !input[0]) return true;
+
+                        let samples = input[0];
+
+                        // Resample if needed
+                        if (this.actualRate !== this.targetRate) {
+                            samples = this.resample(samples, this.actualRate, this.targetRate);
+                        }
+
+                        // Append to buffer
+                        const newBuffer = new Float32Array(this.buffer.length + samples.length);
+                        newBuffer.set(this.buffer);
+                        newBuffer.set(samples, this.buffer.length);
+                        this.buffer = newBuffer;
+
+                        // Send complete frames
+                        while (this.buffer.length >= this.samplesPerFrame) {
+                            const frame = this.buffer.slice(0, this.samplesPerFrame);
+                            this.buffer = this.buffer.slice(this.samplesPerFrame);
+
+                            // Convert float32 to int16
+                            const int16 = new Int16Array(frame.length);
+                            for (let i = 0; i < frame.length; i++) {
+                                const s = Math.max(-1, Math.min(1, frame[i]));
+                                int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                            }
+
+                            this.port.postMessage({
+                                pcm: int16.buffer
+                            }, [int16.buffer]);
+                        }
+
+                        return true;
+                    }
+
+                    resample(samples, fromRate, toRate) {
+                        const ratio = fromRate / toRate;
+                        const newLength = Math.round(samples.length / ratio);
+                        const result = new Float32Array(newLength);
+                        for (let i = 0; i < newLength; i++) {
+                            const srcIndex = i * ratio;
+                            const low = Math.floor(srcIndex);
+                            const high = Math.min(low + 1, samples.length - 1);
+                            const frac = srcIndex - low;
+                            result[i] = samples[low] * (1 - frac) + samples[high] * frac;
+                        }
+                        return result;
+                    }
+                }
+                registerProcessor('pcm-processor', PCMProcessor);
+            `;
+
+            const blob = new Blob([processorCode], { type: 'application/javascript' });
+            const url = URL.createObjectURL(blob);
+
+            await audioContext.audioWorklet.addModule(url);
+            URL.revokeObjectURL(url);
+
+            const source = audioContext.createMediaStreamSource(mediaStream);
+            workletNode = new AudioWorkletNode(audioContext, 'pcm-processor');
+
+            workletNode.port.onmessage = (event) => {
+                const pcmBuffer = event.data.pcm;
+                const bytes = new Uint8Array(pcmBuffer);
+                const b64 = arrayBufferToBase64(bytes);
+
+                sendMessage({
+                    type: 'audio_frame',
+                    pcm: b64,
+                    seq: frameSeq++,
+                });
+            };
+
+            source.connect(workletNode);
+            workletNode.connect(audioContext.destination);
+
+            isRecording = true;
+            micBtn.classList.add('active');
+            micLabel.textContent = 'Recording... click to stop';
+            micLabel.classList.add('active');
+
+            // Reset transcript area
+            resetTranscriptUI();
+
+        } catch (err) {
+            showError(`Microphone access denied: ${err.message}`);
+        }
+    }
+
+    function stopRecording() {
+        if (workletNode) {
+            workletNode.disconnect();
+            workletNode = null;
+        }
+        if (audioContext) {
+            audioContext.close();
+            audioContext = null;
+        }
+        if (mediaStream) {
+            mediaStream.getTracks().forEach(t => t.stop());
+            mediaStream = null;
+        }
+
+        isRecording = false;
+        frameSeq = 0;
+        micBtn.classList.remove('active');
+        micLabel.textContent = 'Click to start';
+        micLabel.classList.remove('active');
+
+        sendMessage({ type: 'reset' });
+        setVADState('idle');
+    }
+
+    // ── UI Updates ─────────────────────────────────────────────
+    function setStatus(status, text) {
+        statusBadge.dataset.status = status;
+        statusText.textContent = text;
+    }
+
+    function setVADState(state) {
+        vadIndicator.dataset.state = state;
+        const labels = {
+            idle: 'Idle',
+            listening: 'Listening',
+            speaking: 'Speaking',
+            cooldown: 'Processing...',
+            finalizing: 'Finalizing...',
+        };
+        vadLabel.textContent = labels[state] || state;
+    }
+
+    function showPartialTranscript(text) {
+        transcriptPlaceholder.style.display = 'none';
+        finalTranscript.style.display = 'none';
+        partialTranscript.style.display = 'block';
+        partialTranscript.textContent = text + '...';
+    }
+
+    function showFinalTranscript(text) {
+        currentFinalTranscript = text;
+        transcriptPlaceholder.style.display = 'none';
+        partialTranscript.style.display = 'none';
+        finalTranscript.style.display = 'block';
+        finalTranscript.textContent = text;
+
+        currentHistoryEntry = addHistoryEntry(currentFinalTranscript, 'Claude pending...');
+
+        // Prepare Claude area
+        currentClaudeText = '';
+        claudePlaceholder.style.display = 'none';
+        claudeText.style.display = 'inline';
+        claudeText.textContent = '';
+        claudeCursor.style.display = 'inline-block';
+
+        // Remove previous done tags
+        const oldDone = claudeResponse.querySelector('.claude-response__done-tag');
+        if (oldDone) oldDone.remove();
+    }
+
+    function appendClaudeDelta(text) {
+        currentClaudeText += text;
+        claudeText.textContent = currentClaudeText;
+
+        if (currentHistoryEntry) {
+            const claudeDiv = currentHistoryEntry.querySelector('.history__claude');
+            if (claudeDiv) {
+                claudeDiv.textContent = currentClaudeText;
+            }
+        }
+
+        // Auto-scroll
+        claudeResponse.scrollTop = claudeResponse.scrollHeight;
+    }
+
+    function onClaudeDone() {
+        claudeCursor.style.display = 'none';
+
+        // Add done tag
+        const tag = document.createElement('div');
+        tag.className = 'claude-response__done-tag';
+        tag.textContent = '✓ COMPLETE';
+        claudeResponse.appendChild(tag);
+
+        // Reset VAD
+        setVADState('listening');
+    }
+
+    function addHistoryEntry(userText, claudeResponseText) {
+        const entry = document.createElement('div');
+        entry.className = 'history__entry';
+
+        const userDiv = document.createElement('div');
+        userDiv.className = 'history__user';
+        userDiv.textContent = userText;
+
+        const claudeDiv = document.createElement('div');
+        claudeDiv.className = 'history__claude';
+        claudeDiv.textContent = claudeResponseText;
+
+        entry.appendChild(userDiv);
+        entry.appendChild(claudeDiv);
+
+        history.insertBefore(entry, history.firstChild);
+        return entry;
+    }
+
+    function resetTranscriptUI() {
+        transcriptPlaceholder.style.display = 'block';
+        partialTranscript.style.display = 'none';
+        finalTranscript.style.display = 'none';
+        claudePlaceholder.style.display = 'block';
+        claudeText.style.display = 'none';
+        claudeText.textContent = '';
+        claudeCursor.style.display = 'none';
+        currentHistoryEntry = null;
+
+        const oldDone = claudeResponse.querySelector('.claude-response__done-tag');
+        if (oldDone) oldDone.remove();
+    }
+
+    function showError(message) {
+        errorBanner.textContent = '⚠ ' + message;
+        errorBanner.classList.add('visible');
+        setTimeout(() => {
+            errorBanner.classList.remove('visible');
+        }, 8000);
+    }
+
+    function hideError() {
+        errorBanner.classList.remove('visible');
+    }
+
+    // ── Helpers ────────────────────────────────────────────────
+    function arrayBufferToBase64(bytes) {
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+    }
+
+    // ── Event Listeners ───────────────────────────────────────
+    micBtn.addEventListener('click', () => {
+        if (isRecording) {
+            stopRecording();
+        } else {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showError('Not connected to server. Retrying...');
+                connectWebSocket();
+                return;
+            }
+            startRecording();
+        }
+    });
+
+    // ── Init ──────────────────────────────────────────────────
+    connectWebSocket();
+    </script>
+</body>
+</html>
