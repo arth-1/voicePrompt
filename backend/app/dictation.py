@@ -71,7 +71,11 @@ class PushToTalkDictation:
         self._frames: list[bytes] = []
         self._lock = threading.Lock()
         self._stream = None
-        self._active = False  # debounce: hotkey is currently held
+        self._keyboard = None  # set in run(); the keyboard module instance
+        self._hook_handle = None  # handle for the suppressing trigger hook
+        self._trigger_filter = None
+        self._trigger_name = ""
+        self._modifier_names: list[str] = []
 
     # ── Mic stream control ─────────────────────────────────────────
     def _audio_callback(self, indata, frames, time_info, status) -> None:
@@ -89,6 +93,41 @@ class PushToTalkDictation:
         self._recording = True
         logger.info("● recording…")
         print("  ● recording… (release to transcribe)", end="\r", flush=True)
+
+    def _emit_text(self, text: str) -> bool:
+        """
+        Type ``text`` at the cursor.
+
+        We run a global *suppressing* keyboard hook for the trigger key. That
+        hook processes events on a background listener thread, so toggling an
+        "ignore" flag around injection races against it — only the characters
+        typed before the flag flips back get through (this caused output to be
+        truncated at the first space).
+
+        The reliable fix: temporarily *remove* the suppressing hook, type, then
+        reinstall it. With no hook active during injection, every character
+        (spaces included) reaches the focused app. We type with
+        ``keyboard.write`` because it releases any held hotkey modifiers
+        (ctrl/shift) before typing so they can't corrupt the text.
+        """
+        kb = self._keyboard
+        if kb is None:
+            return self.typer.type_text(text)
+
+        self._remove_hook()
+        try:
+            kb.write(text, delay=0, restore_state_after=False)
+            logger.info(f"Typed {len(text)} chars at cursor (keyboard.write).")
+            ok = True
+        except Exception as e:
+            logger.error(f"keyboard.write failed, falling back: {e}")
+            ok = self.typer.type_text(text)
+        finally:
+            # Let injected keystrokes drain from the OS queue before the
+            # suppressing hook comes back, so it can't catch their tail.
+            time.sleep(0.05)
+            self._install_hook()
+        return ok
 
     def _stop_and_transcribe(self) -> None:
         if not self._recording:
@@ -126,10 +165,9 @@ class PushToTalkDictation:
 
         out = text + (" " if self.append_space else "")
         print(f"  ➤ {text}")
-        # Give the user a moment to fully release the hotkey, then the typer
-        # also force-releases any still-held modifiers before injecting text.
+        # Give the user a moment to fully release the hotkey before typing.
         time.sleep(0.12)
-        self.typer.type_text(out)
+        self._emit_text(out)
 
     # ── Run loop ───────────────────────────────────────────────────
     def _decide_trigger(self, event_type: str, mods_down: bool) -> bool:
@@ -163,6 +201,8 @@ class PushToTalkDictation:
         import keyboard
         import sounddevice as sd
 
+        self._keyboard = keyboard
+
         print("=" * 64)
         print("  Universal Push-to-Talk Dictation   (Ctrl+C to quit)")
         print("=" * 64)
@@ -193,6 +233,8 @@ class PushToTalkDictation:
         #   - trigger activity with no modifiers -> passes through normally
         modifier_names = [k.strip() for k in self.hotkey.split("+")[:-1]]
         trigger_name = self.hotkey.split("+")[-1].strip()
+        self._modifier_names = modifier_names
+        self._trigger_name = trigger_name
 
         def _trigger_filter(ev) -> bool:
             """Return True to allow the key event through, False to suppress."""
@@ -202,7 +244,8 @@ class PushToTalkDictation:
             )
             return self._decide_trigger(ev.event_type, mods_down)
 
-        keyboard.hook_key(trigger_name, _trigger_filter, suppress=True)
+        self._trigger_filter = _trigger_filter
+        self._install_hook()
 
         try:
             keyboard.wait()  # block forever (until Ctrl+C)
@@ -212,6 +255,26 @@ class PushToTalkDictation:
             if self._stream is not None:
                 self._stream.stop()
                 self._stream.close()
+
+    # ── Suppressing hook install/remove ────────────────────────────
+    def _install_hook(self) -> None:
+        """Install the suppressing trigger-key hook."""
+        if self._keyboard is None or self._hook_handle is not None:
+            return
+        self._hook_handle = self._keyboard.hook_key(
+            self._trigger_name, self._trigger_filter, suppress=True
+        )
+
+    def _remove_hook(self) -> None:
+        """Remove the suppressing trigger-key hook (so we can type freely)."""
+        if self._hook_handle is None:
+            return
+        try:
+            # hook_key returns a remover closure; calling it removes the hook.
+            self._hook_handle()
+        except Exception:
+            pass
+        self._hook_handle = None
 
 
 def main() -> None:
